@@ -1,0 +1,13 @@
+architecture
+agricultural-food-sciences-agriculture
+art
+arts
+education
+engineering
+environment-earth-resources
+kinesiology-recreation-management
+law
+management-business
+music
+science
+rady
