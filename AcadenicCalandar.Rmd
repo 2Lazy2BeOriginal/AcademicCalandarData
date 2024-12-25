@@ -1,0 +1,183 @@
+---
+title: "Data Analysis About Academic Calandar"
+author: "2Lazy2BeOriginal"
+date: "2024-12-24"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+This document used Python + Selenium to collect the course codes and their respective department and faculty. We are interested in finding the most common course code among all the classes and within each faculty. In addition, this will iterate through each department and compare to the other departments to count how many codes are shared among the two. 
+
+**Note**: There are many courses that are no longer offered at the UofM and are still counted in this list. The Academic Calendar does not differentiate between which current classes offered or not. 
+
+```{r echo = FALSE}
+all_courses <-read.table("./output.txt", sep=" ", header = TRUE)
+all_faculties <- read.table("./facultiesList.txt", sep=" ")
+all_faculties = all_faculties[,1]
+
+numFacs <- length(all_faculties)
+```
+
+## What is the most common course number? 
+
+```{r}
+# get all courses and then sort and retrieve the codes with at least 10 departments using it
+sortedNum = sort(table(all_courses$number), decreasing = TRUE)
+sortedNum = data.frame(sortedNum[which(sortedNum >= 10)])
+colnames(sortedNum) <- c("Course code", "Frequency")
+```
+
+```{r echo = FALSE, results = 'asis'}
+library(gt)
+gt_tbl <- gt(tail(sortedNum, 15))
+gt_tbl <- 
+  gt_tbl |>
+  #dplyr::filter(Freq >= 10) 
+  tab_header(
+    title = md("**All the course codes sorted by frequency**"),
+    subtitle = md("The top *15 most common codes* are displayed")
+  )
+# Show the gt Table
+gt_tbl
+```
+So (perhaps suprsignly) the most common course code is not 1000 but 4010 with 23 departments using it in their classes. These include "EVAR" "EVIE" "EVLU" "AGRI" "FOOD" "ECON" "HIST" "POLS" "RLGN" "EDUB" "ENG""ENVR" "ACC"  "ACT"  "GMGT" "LEAD" "MKT"  "MUSC" "DATA" "PHYS" "BGEN" "MDFY" "PHMD"
+
+## What is the most common course number by faculty
+
+```{r}
+# get all courses and then sort and retrieve the codes with at least 10 departments using it
+
+commonCodes = data.frame(
+  faculty = all_faculties, 
+  course_code = numeric(length(all_faculties)), 
+  frequency = numeric(length(all_faculties))
+  )
+
+# go through each faculty and find the most common code
+for (i in 1:length(all_faculties)) {
+  # retrieve the course codes by a department
+  facultyVec <- all_courses$number[all_courses$faculty == all_faculties[i]]
+  # sort them by frequency and then the end is the most common one
+  facultyVec <- sort(table(facultyVec))
+  # the end should be the most frequent so we just append our data frame
+  commonCodes$frequency[commonCodes$faculty == all_faculties[i]] <- facultyVec[length(facultyVec)]
+  commonCodes$course_code[commonCodes$faculty == all_faculties[i]] <- dimnames(facultyVec)$facultyVec[length(facultyVec)]
+}
+```
+
+```{r echo = FALSE}
+library(gt)
+gt_tbl <- gt(commonCodes)
+gt_tbl <- 
+  gt_tbl |>
+  #dplyr::filter(Freq >= 10) 
+  tab_header(
+    title = md("**Most common course code based off faculty**"),
+    subtitle = md("Only the ones with *ten or more* are displayed")
+  )
+# Show the gt Table
+gt_tbl
+```
+The arts faculty is the largest so it makes sense that it has the most departments with the same course codes. There are 
+## Which department has the most classes? 
+
+```{r}
+deptNames = data.frame(table(all_courses$name, all_courses$faculty))
+colnames(deptNames) <- c("Department", "Faculty", "Freq")
+deptNames = deptNames[order(deptNames$Freq, decreasing = TRUE),]
+```
+
+```{r echo = FALSE}
+gt_tbl <- gt(deptNames[which(deptNames$Freq > 50),])
+gt_tbl <- 
+  gt_tbl |>
+  tab_header(
+    title = md("**The departments and the corrisponding number of courses offered**"),
+    subtitle = md("Only the ones with *fifty or more* are displayed")
+  )
+# Show the gt Table
+gt_tbl
+```
+## Which department shares the most classes with another
+
+### How do we store the results?
+
+This needs some explaining on how the data was collected. It uses a matrix where each col/row corresponds to a particular department. And each entry is a pair of departments that is being compared. 
+
+For example, if row 2 is "ECON" and col 5 is "WOMN" then the entry at row 2 and col 5 will display how many course codes are shared between the two.
+
+Note that this will lead to a symmetric matrix and the diagonals would give how many courses are in a certain department. However for this situation the diagonals are set to zero to make finding the largest department fair easier to find.
+
+### How do we find how many codes are in common
+
+the `table()` function in R groups repeated entries and returns the frequency. Each department has a unique code that cooresponds to a particular class. (MATH 1500 always means Introduction to Calculus, PHIL 1300 always means Introduction to Logic). In other words, each department course code only appears once.
+
+And if we combine the two departments and table the data, a frequency of two automatically implies the code exists in both departments. Then we simply count how many codes have a count of two.
+
+```{r}
+# Only departments with ten or more classes are considered 
+deptOnly <- deptNames$Department[deptNames$Freq > 10]
+# symmetric matrix where each i,j entry is a pair of departments
+mostCommonMatrix = matrix(nrow = length(deptOnly), ncol = length(deptOnly), dimnames = list(deptOnly, deptOnly))
+
+# iterate through each possible pair
+for (y in 1:length(deptOnly)) {
+  for (x in 1:length(deptOnly)) {
+    # name for department 1 and 2 
+    target1 <- colnames(mostCommonMatrix)[[x]]
+    target2 <- colnames(mostCommonMatrix)[[y]]
+    # combine the two department codes
+    combinedVec = c(all_courses$number[all_courses$name == target1], all_courses$number[all_courses$name == target2])
+    temp <- table(combinedVec)
+    # The case where x = y is always the number of classes but set to 0 to make calculations easier
+    if (x == y) {
+      mostCommonMatrix[y,x] <- 0
+    } else {
+      # count how many codes are duplicated, implies the 2 department share same code
+      mostCommonMatrix[y,x] <- sum(temp == 2)
+    }
+  }
+}
+which(mostCommonMatrix == max(mostCommonMatrix), arr.ind=TRUE)
+max(mostCommonMatrix)
+```
+
+The most two departments with the most course codes in common among the two are **History** and **Religion** with 26 codes shared among the two
+
+## What about the other departments?
+
+```{r}
+# this will keep track of a faculty and match with a different department
+indices = data.frame(from = deptOnly, to = NA, freq = NA)
+for (i in 1:length(deptOnly)) {
+  # each row is a department
+  currRow <- mostCommonMatrix[i,]
+  # we order the data since it tells us the index since it is how we backtrack to the department name
+  keyIndex <- order(currRow)[length(deptOnly)]
+  matchingDept <- colnames(mostCommonMatrix)[[keyIndex]]
+  count <- max(currRow)
+  
+  indices$to[indices$from == deptOnly[i]] <- matchingDept
+  indices$freq[indices$from == deptOnly[i]] <- count
+}
+
+indices <- indices[order(indices$freq),]
+```
+
+```{r echo = FALSE}
+library(gt)
+gt_tbl <- gt(tail(indices, 25))
+gt_tbl <- 
+  gt_tbl |>
+  #dplyr::filter(Freq >= 10) 
+  tab_header(
+    title = md("**Each department and a different department corresponding most common course code**"),
+  )
+# Show the gt Table
+gt_tbl
+```
