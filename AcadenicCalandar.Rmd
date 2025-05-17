@@ -5,18 +5,20 @@ date: "2024-12-24"
 output:
   html_document:
     df_print: paged
+  word_document: default
   pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 options(tinytex.verbose = TRUE)
 ```
+
 This document used Python + Selenium to collect the course codes and their respective department and faculty. We are interested in finding the most common course code among all the classes and within each faculty. In addition, this will iterate through each department and compare to the other departments to count how many codes are shared among the two. 
 
 **Note**: There are many courses that are no longer offered at the UofM and are still counted in this list. The Academic Calendar does not differentiate between which current classes offered or not. 
 
-```{r create table and Vec, echo = FALSE}
+```{r create table and Vec}
 # use read.delim for sep that is not space or comma
 
 setwd("/Users/2lazy2beoriginal/PycharmProjects/GetAcademicCalandar")
@@ -38,30 +40,36 @@ numFacs <- length(all_faculties)
 
 ## What is the most common course number? 
 
-```{r finding top 5, echo = FALSE}
+```{r finding top 5}
 sortedCodes <- sort(table(code = all_courses$code), decreasing = TRUE)
-sortedCodes[1:10]
+sortedCodes[1:15]
 ```
-```{r plot Code divide by fac, echo = FALSE}
+
+```{r plotTopCodes;groupByFac,  fig.width = 18, fig.height = 7}
 library('forcats')
 library(ggplot2)
-topCodes <- names(sortedCodes[1:10])
+facOrder <- c("arts","engineering", "health sciences", "science", "other")
+topCodes <- names(sortedCodes[1:15])
 topCodesDf <- all_courses[which(all_courses$code %in% topCodes),]
 topCodesDf <- topCodesDf[order(topCodesDf$faculty),]
 # prevent R from thinking these are numbers and treat as string
 topCodesDf$code <- as.character(topCodesDf$code)
 # make colour coding less annoying
 cherryPickFac <- c("asper", "engineering", "science", "health sciences", "arts")
+# show the plot
 topCodesDf$faculty[!topCodesDf$faculty %in% cherryPickFac] <- "other"
+# reorder so other is at the bottom
+topCodesDf$faculty = factor(topCodesDf$faculty, facOrder)
+
   ggplot(topCodesDf, aes(code)) + geom_bar(aes(fill = faculty)) +
-  labs(title = "Most common course codes barplot",
-       subtitle = "colour coded by faculty")
-  
+  labs(title = "Most common course codes",
+       subtitle = "colour coded by faculty") + 
+   theme_gray(base_size = 22)
 ```
 
 ## Table of the courses and the names 
 
-```{r echo = FALSE, results = 'asis', warning=FALSE, echo = FALSE}
+```{r showCoursesUnderAcode ,results = 'asis', warning=FALSE, echo = FALSE}
 # this threw a depreciated with xfun::attr
 #topCodesDf <- all_courses[which(all_courses$code %in% top5),]
 #  topCodesDf %>% 
@@ -80,7 +88,7 @@ makeTableForTopCodes <- function(x) {
   plotTitle <- paste("Courses with code ",x)
   colnames(all4010) <- c("Count", "Department", "Faculty", "Course Name")
   kbl(all4010, row.names = FALSE, align = "c") %>% 
-    add_header_above(c(plotTitle = 4)) %>% 
+    add_header_above(c(setNames(4, paste("Department with course code", x, " and name of the course")))) %>% 
       kable_styling() %>% 
     print()
 }
@@ -91,6 +99,10 @@ for (i in 1:5) {
 }
 ```
 So (perhaps surprisingly) the most common course code is not 1000 but 4010 with 24 departments using it in their classes. 
+
+For many suprised by this (particualrly those who wonder why 1010, 1020 are not more common)
+
+4 science courses have 1010 and 1 econ 
 
 ## What is the most common course number by faculty
 
@@ -114,7 +126,7 @@ for (i in 1:length(moreOneFacVec)) {
 mostCommonByFacDf <- cbind(rep(c("Code", "Frequency"), length(moreOneFacVec)),mostCommonByFacDf,moreOneFacVec2)
 ```
 
-```{r showTable, echo = FALSE, warning=FALSE}
+```{r showTableOfCommonCodes, echo = FALSE, warning=FALSE}
 library(kableExtra)
 # -7 is the column of the groups
 kbl(mostCommonByFacDf[,-7], row.names = FALSE) %>% kable_styling(bootstrap_options = c("striped", "hover")) %>% 
@@ -128,45 +140,89 @@ add_header_above(c("Most common course codes grouped by Department" = 6)) %>%
 # add rowNames
 pack_rows(index = table(moreOneFacVec2), label_row_css = "background-color: #666; color: #fff;") %>%
 # add footnote omiting
-footnote(general = "music, law, and social-work are omitted as they only have one course prefix")
+footnote(general = "music, law, and social-work are omitted as those faculties have only have one course prefix")
 ```
 The arts faculty is the largest so it makes sense that it has the most departments with the same course codes. There are 
 
 ## Which department has the most classes? 
 
-```{r echo = FALSE}
+```{r show dept class count top 60, fig.width = 25}
 # Do later but add porportion of courses offered
 library(gt)
-sortByDept <- sort(table(Department = all_courses$dept),decreasing = TRUE)[1:15]
-gt_tbl <- gt(as.data.frame(sortByDept))
+suppressMessages(library(tidyverse))
+
+sortByDept <- as.data.frame(sort(table(Department = all_courses$dept),decreasing = TRUE)[1:60])
+# add porportion and count
+sortByDept <- cbind(Rank = 1:60, sortByDept, "Relative Porportion" = round(sortByDept$Freq / nrow(all_courses),digits = 3) )
+
+suppressMessages(a <- bind_cols(sortByDept[1:10,], sortByDept[11:20,],sortByDept[21:30,]))
+suppressMessages(b <- bind_cols(sortByDept[31:40,], sortByDept[41:50,],sortByDept[51:60,]))
+gt_tbl <- gt(a)
 gt_tbl <- 
   gt_tbl |>
+    opt_stylize(style = 1) |> 
+    tab_spanner("1st-10th", 1:4) |>
+    tab_spanner("11th-20th", 5:8) |>
+  tab_spanner("21st-30th", 9:12) |>
   tab_header(
     title = md("**The departments with number of courses offered**"),
     subtitle = md("These may include courses *no longer availiable*")
+  ) |> 
+  cols_label(
+    "Rank...1" = "Rank",
+    "Department...2" = "Department",
+    "Freq...3" = "Freq",
+    "Relative Porportion...4" = "Relative Porportion",
+    "Rank...5" = "Rank",
+    "Department...6" = "Department",
+    "Freq...7" = "Freq",
+    "Relative Porportion...8" = "Relative Porportion",
+    "Rank...9" = "Rank",
+    "Department...10" = "Department",
+    "Freq...11" = "Freq",
+    "Relative Porportion...12" = "Relative Porportion"
+  )
+# Show the gt Table
+gt_tbl
+# show it again but directly below
+gt_tbl <- gt(b)
+gt_tbl <- 
+  gt_tbl |>
+    opt_stylize(style = 1) |> 
+    tab_spanner("31st-40th", 1:4) |>
+    tab_spanner("51st-50th", 5:8) |>
+  tab_spanner("51st-60th", 9:12) |>
+  cols_label(
+    "Rank...1" = "Rank",
+    "Department...2" = "Department",
+    "Freq...3" = "Freq",
+    "Relative Porportion...4" = "Relative Porportion",
+    "Rank...5" = "Rank",
+    "Department...6" = "Department",
+    "Freq...7" = "Freq",
+    "Relative Porportion...8" = "Relative Porportion",
+    "Rank...9" = "Rank",
+    "Department...10" = "Department",
+    "Freq...11" = "Freq",
+    "Relative Porportion...12" = "Relative Porportion"
   )
 # Show the gt Table
 gt_tbl
 ```
-The caviet is that some faculties only fall under one course code, and hence 
 
 ## Porportion of classes by faculty
-```{r pie chart, echo = FALSE}
 
-pie(table(all_courses$faculty),col=rainbow(length(all_faculties)), radius = 1.05)
-getProp <- function(x) {
-  tempDf <- all_courses[which(all_courses$faculty == x),]
-  p <- round(nrow(tempDf) / nrow(all_courses), digits = 3)
-  paste(x, "porportion is", p)
-}
+```{r pie chart, echo = FALSE, fig.width = 14, fig.height = 14}
+# unique(sort) is just luck, cex increase text size but may not appear right on a phone
+pie(table(all_courses$faculty), 
+    label = paste(unique(sort(all_courses$faculty))," ", round(prop.table(table(all_courses$faculty))*100), "%"), col=rainbow(length(all_faculties)), 
+    radius = 0.8, cex=1.5)
 
-sapply(all_faculties, getProp)
-#pie3D(table(all_courses$faculty), explode=0.1, labels = all_faculties)
 ```
 
 ## What is the shortest and longest course name
 
-```{r}
+```{r find shortest/longest course names}
 # do average word length by faculty/dept and also most common words
 
 library(tokenizers)
@@ -185,11 +241,26 @@ tail(withWordCountDf, 15)
 meanWordLen <- sapply(all_dept, function(x) {
   mean(withWordCountDf[which(withWordCountDf$dept == x), "numWords"])
 })
+# normal
 hist(meanWordLen)
+# right skewed, perhaps gamma 
+hist(word_count)
+
+library(MASS)
+fitdistr(char_count, "gamma", start=list(shape=1, rate=1))$estimate
+
+justArts <- withWordCountDf[which(withWordCountDf$faculty == "arts"),"numWords"]
+library(DescTools)
+DescTools::PlotQQ(word_count, function(p) qexp(p, 1 / 4.14))
+DescTools::PlotQQ(word_count, function(q) qgeom(q, 1 - exp(-1/4.14)))
+DescTools::PlotQQ(char_count, function(p) qgamma(p, 5.1823 / 0.169))
+DescTools::PlotQQ(justArts, function(p) qpois(p, 4.32))
 ```
+## Does it follow Benfords Law 
+
 ## What is the most common word 
 
-```{r findMostCommonWord, echo = FALSE}
+```{r findMostCommonWord}
 # 1. Collapse all strings into one
 all_text <- paste(withWordCountDf$courseName, collapse = " ")
 # 2. Split into individual words
@@ -198,11 +269,59 @@ words <- unlist(strsplit(all_text, "\\s+"))
 words <- tolower(words)
 # 4. Count word frequency
 word_freq <- table(words)
+sort(word_freq, decreasing = TRUE)
 ```
+
 
 ## What happens if you discard most of the words 
 
+```{r discard words} 
+filter_string_by_words <- function(w, s) {
+  # Initialize a data frame to store results
+  results <- data.frame(filteredString = character(length(s)),
+                        originalString = character(length(s)),
+                        wordsRemoved = integer(length(s)),
+                        stringsAsFactors = FALSE)
+  
+  for (i in seq_along(s)) {
+    # Split the string into words
+    wd <- unlist(strsplit(s[i], "\\s+"))
+    
+    # Keep only words in w
+    kept_words <- wd[wd %in% w]
+    
+    # Reconstruct filtered string
+    filtered_str <- paste(kept_words, collapse = " ")
+    
+    # Count removed words
+    words_removed <- length(wd) - length(kept_words)
+    
+    # Store in results data frame
+    results$filteredString[i] <- filtered_str
+    results$wordsRemoved[i] <- words_removed
+    results$originalString[i] <- s[i]
+  }
+  
+  return(results)
+}
+
+# get all the words that show up at least 5 times 
+topWordFreq <- names(word_freq[which(word_freq > 1)])
+res <- filter_string_by_words(topWordFreq, tolower(all_courses$courseName))
+```
 ## 2890, 3890, 4890 are co op work terms 
+
+## Which department is most similar to one another, how about faculty
+
+* use document distance 
+
+## Which word is the most infomation dense
+
+* some words are common but don't narrow down by deoartment (such as and and (1))
+* some words are not common but heavily narrow down department but have to get "lucky" (like statistics narrowing down to just STAT and phys but that's it)
+
+* Use the infomation theory from 3B1B to narrow it down 
+
 
 ## Which department shares the most classes with another
 
@@ -215,57 +334,62 @@ And if we combine the two departments and table the data, a frequency of two aut
 # BIOE appears twice in both agriculture and bio engineering
 
 # Only departments with ten or more classes are considered 
-deptOnly <- names(which(table(all_courses$dept) > 10))
+largeDeptVec <- names(which(table(all_courses$dept) > 10))
 # symmetric matrix where each i,j entry is a pair of departments
-mostCommonMatrix = matrix(nrow = length(deptOnly), ncol = length(deptOnly), dimnames = list(deptOnly, deptOnly))
+mostCommonMatrix = matrix(nrow = length(largeDeptVec), ncol = length(largeDeptVec), dimnames = list(largeDeptVec, largeDeptVec))
 
 # iterate through each possible pair
-for (y in 1:length(deptOnly)) {
-  for (x in 1:length(deptOnly)) {
+for (y in 1:length(largeDeptVec)) {
+  for (x in 1:length(largeDeptVec)) {
     # name for department 1 and 2 
     target1 <- colnames(mostCommonMatrix)[[x]]
     target2 <- colnames(mostCommonMatrix)[[y]]
     # combine the two department codes
     combinedVec = c(all_courses$code[all_courses$dept == target1], all_courses$code[all_courses$dept == target2])
     temp <- table(combinedVec)
-    # The case where x = y is always the number of classes but set to 0 to make calculations easier
-    if (x == y) {
-      mostCommonMatrix[y,x] <- 0
-    } else {
-      # count how many codes are duplicated, implies the 2 department share same code
-      mostCommonMatrix[y,x] <- sum(temp == 2)
-    }
+    # The case where x = y is same course counts the number of courses in a department
+    mostCommonMatrix[y,x] <- sum(temp == 2)
   }
 }
-which(mostCommonMatrix == max(mostCommonMatrix), arr.ind=TRUE)
-max(mostCommonMatrix)
+
+commonMatTest = mostCommonMatrix
+diag(commonMatTest) = rep(0, ncol(mostCommonMatrix))
+                          
+which(commonMatTest == max(commonMatTest), arr.ind=TRUE)
+max(commonMatTest)
 ```
 
 The most two departments with the most course codes in common among the two are **History** and **Religion** with 26 codes shared among the two
 
 ## What about the other departments?
 
-```{r, scho = FALSE}
-# this will keep track of a faculty and match with a different department
-indices = data.frame(from = deptOnly, to = NA, freq = NA)
-for (i in 1:length(deptOnly)) {
+```{r calc other dept similarirty}
+# df with dept name, matching dept and count of same course codes
+indices = data.frame(from = largeDeptVec, to = NA, freq = NA)
+
+# go through the columns and take the max
+for (i in 1:length(largeDeptVec)) {
   # each row is a department
-  currRow <- mostCommonMatrix[i,]
+  currRow <- commonMatTest[i,]
   # we order the data since it tells us the index since it is how we backtrack to the department name
-  keyIndex <- order(currRow)[length(deptOnly)]
-  matchingDept <- colnames(mostCommonMatrix)[[keyIndex]]
+  keyIndex <- order(currRow, decreasing = TRUE)[1]
+  matchingDept <- colnames(commonMatTest)[keyIndex]
   count <- max(currRow)
   
-  indices$to[indices$from == deptOnly[i]] <- matchingDept
-  indices$freq[indices$from == deptOnly[i]] <- count
+  # add to the list 
+  indices$to[i] <- matchingDept
+  indices$freq[i] <- count
 }
 
-indices <- indices[order(indices$freq),]
+# this df is sorted by frequency most to lowest. We will skip every other entry since it will be the mirrored version
+
+indices <- indices[order(indices$freq, decreasing = TRUE),]
+indices <- indices[seq(1, nrow(indices), by = 2),]
 ```
 
 ```{r echo = FALSE}
 library(gt)
-gt_tbl <- gt(tail(indices, 25))
+gt_tbl <- gt(head(indices, 25))
 gt_tbl <- 
   gt_tbl |>
   #dplyr::filter(Freq >= 10) 
@@ -275,11 +399,3 @@ gt_tbl <-
 # Show the gt Table
 gt_tbl
 ```
-
-# Graph Theory
-
-### Each edge is connected if there is no same digit and diff dept
-### Note to self (try to make this into a graph and see of its hamiltonian, k connected etc)
-### Try to see if faculty is planar or chromanic number
-### Create adj matrix for each course (prefix + code) and add an edge if code is the same
-### Try to implement google search algorithm by using porportion of matched codes?
